@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Secure Bridge - Zero-Trust Edge Gateway</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        alabaster: {
+                            bg: '#F2EFE9',
+                            card: '#E8E4DC',
+                            border: '#D1CCBE',
+                        },
+                        murrey: {
+                            DEFAULT: '#3D031E',
+                            dark: '#2A0214',
+                            light: '#58022B',
+                            subtle: '#850642',
+                        }
+                    },
+                    fontFamily: {
+                        serif: ['"Times New Roman"', 'Times', 'serif'],
+                        mono: ['"Times New Roman"', 'Times', 'serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        * {
+            font-family: 'Times New Roman', Times, serif !important;
+        }
+    </style>
+</head>
+<body class="bg-alabaster-bg text-murrey min-h-screen p-6 w-full">
+
+    <header class="w-full mb-6 flex justify-between items-center border-b border-alabaster-border pb-4">
+        <div>
+            <h1 class="text-4xl font-bold text-murrey">Secure Bridge Gateway</h1>
+            <p class="text-murrey-light text-base mt-1">Zero-Trust Edge Privacy & Ephemeral Memory Monitor</p>
+        </div>
+    </header>
+
+    <div class="w-full mb-6 flex gap-4 border-b border-alabaster-border pb-2">
+        <button id="tabGatewayBtn" onclick="switchTab('gateway')" class="text-lg font-bold px-6 py-2 rounded border border-murrey bg-murrey text-alabaster-bg transition">
+            Real-Time Gateway Interceptor
+        </button>
+        <button id="tabImageBtn" onclick="switchTab('image')" class="text-lg font-bold px-6 py-2 rounded border border-alabaster-border bg-alabaster-card text-murrey hover:bg-alabaster-border transition">
+            Multi-Modal Image Redaction Engine
+        </button>
+    </div>
+
+    <div id="gatewayTab" class="w-full">
+        <main class="w-full grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <div class="bg-alabaster-card p-6 rounded border border-alabaster-border space-y-5 shadow-sm">
+                <h2 class="text-2xl font-bold text-murrey border-b border-alabaster-border pb-2">
+                    1. Enterprise User Prompt
+                </h2>
+                
+                <textarea id="promptInput" rows="6" class="w-full bg-alabaster-bg border border-alabaster-border rounded p-4 text-murrey text-base focus:outline-none focus:border-murrey placeholder-murrey-light" placeholder="Type prompt with Aadhaar, Card, Email, SSN, or PAN..."></textarea>
+                
+                <div class="flex gap-2">
+                    <button onclick="loadSample()" class="text-sm bg-alabaster-bg hover:bg-alabaster-border border border-murrey text-murrey px-4 py-2 rounded transition">Load Random PII Payload</button>
+                </div>
+
+                <button onclick="processPayload()" class="w-full bg-murrey hover:bg-murrey-dark text-alabaster-bg font-bold text-lg py-3 rounded transition shadow">
+                    Process Payload Through Gateway
+                </button>
+            </div>
+
+            <div class="bg-alabaster-card p-6 rounded border border-alabaster-border lg:col-span-2 space-y-6 shadow-sm">
+                <h2 class="text-2xl font-bold text-murrey border-b border-alabaster-border pb-2">
+                    2. Gateway Transformation Pipeline
+                </h2>
+                
+                <div class="flex gap-6">
+                    <div class="bg-alabaster-bg p-4 rounded border border-alabaster-border flex-1">
+                        <p class="text-sm font-semibold uppercase tracking-wider text-murrey-light">Processing Latency</p>
+                        <p id="latencyMetric" class="text-3xl font-bold text-murrey mt-1">0.00 ms</p>
+                    </div>
+                    <div class="bg-alabaster-bg p-4 rounded border border-alabaster-border flex-1">
+                        <p class="text-sm font-semibold uppercase tracking-wider text-murrey-light">PII Tokens Created</p>
+                        <p id="tokensMetric" class="text-3xl font-bold text-murrey mt-1">0</p>
+                    </div>
+                </div>
+
+                <div class="space-y-4">
+                    <div>
+                        <span class="text-sm font-bold text-murrey uppercase tracking-wider">Sanitized Edge Egress Payload (Sent to Cloud LLM)</span>
+                        <div id="sanitizedBox" class="bg-alabaster-bg p-4 rounded border border-alabaster-border text-base text-murrey-light mt-2 min-h-[50px]">Waiting for input...</div>
+                    </div>
+
+                    <div>
+                        <span class="text-sm font-bold text-murrey uppercase tracking-wider">Rehydrated Client Output (Returned to User)</span>
+                        <div id="rehydratedBox" class="bg-alabaster-bg p-4 rounded border border-alabaster-border text-base text-murrey mt-2 min-h-[50px]">Waiting for input...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-alabaster-card p-6 rounded border border-alabaster-border lg:col-span-3 space-y-4 shadow-sm">
+                <div class="flex justify-between items-center border-b border-alabaster-border pb-2">
+                    <h2 class="text-2xl font-bold text-murrey flex items-center gap-3">
+                        <span>3. Ephemeral RAM Vault Live Monitor</span>
+                        <span class="text-xs bg-alabaster-bg text-murrey px-3 py-1 rounded border border-murrey">Zero-Disk TTL State</span>
+                    </h2>
+                    <span class="text-sm text-murrey-light">Auto-Purging Active Memory Map</span>
+                </div>
+
+                <div id="vaultTable" class="bg-alabaster-bg rounded p-4 border border-alabaster-border text-sm text-murrey min-h-[100px]">
+                    No active token mappings in RAM memory.
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <div id="imageTab" class="w-full hidden">
+        <main class="w-full grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div class="bg-alabaster-card p-6 rounded border border-alabaster-border space-y-5 shadow-sm lg:col-span-1">
+                <h2 class="text-2xl font-bold text-murrey border-b border-alabaster-border pb-2">
+                    Engine Architecture
+                </h2>
+                <p class="text-base text-murrey leading-relaxed">
+                    The Destructive Visual Redaction Engine provides irreversible pixel-level anonymization for multi-modal attachment payloads prior to cloud egress.
+                </p>
+                <div class="space-y-3 border-t border-alabaster-border pt-3">
+                    <div class="p-3 bg-alabaster-bg rounded border border-alabaster-border">
+                        <p class="font-bold text-murrey">1. Isolation Sandbox</p>
+                        <p class="text-sm text-murrey-light mt-1">Executes image parsing & OCR inside a network-blind Seccomp-BPF Linux kernel container.</p>
+                    </div>
+                    <div class="p-3 bg-alabaster-bg rounded border border-alabaster-border">
+                        <p class="font-bold text-murrey">2. Bounding-Box Detection</p>
+                        <p class="text-sm text-murrey-light mt-1">Identifies visual regions containing face matrices, national IDs, and card imprints.</p>
+                    </div>
+                    <div class="p-3 bg-alabaster-bg rounded border border-alabaster-border">
+                        <p class="font-bold text-murrey">3. Zero-Pixel Overwriting</p>
+                        <p class="text-sm text-murrey-light mt-1">Destructively overwrites detected pixel arrays with absolute zero values (0,0,0) making recovery mathematically impossible.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-alabaster-card p-6 rounded border border-alabaster-border lg:col-span-2 space-y-6 shadow-sm">
+                <h2 class="text-2xl font-bold text-murrey border-b border-alabaster-border pb-2">
+                    Implementation Roadmap (Stage 2 Integration)
+                </h2>
+                
+                <div class="bg-alabaster-bg p-5 rounded border border-alabaster-border space-y-4">
+                    <span class="text-sm font-bold text-murrey uppercase tracking-wider">Features Scheduled For Further Stages</span>
+                    
+                    <ul class="list-disc list-inside space-y-2 text-base text-murrey-light">
+                        <li><strong class="text-murrey">Local OCR Pipeline:</strong> Integration of localized Tesseract/EasyOCR engine running inside Seccomp-BPF sandbox.</li>
+                        <li><strong class="text-murrey">Multi-Modal Payload Routing:</strong> Dual-channel sanitation supporting combined image attachments and cleartext prompts simultaneously.</li>
+                        <li><strong class="text-murrey">Zero-Pixel Overwrite Verification:</strong> Automated post-redaction visual hashing to confirm full irreversible metadata stripping.</li>
+                        <li><strong class="text-murrey">Direct Canvas Rendering:</strong> Live visual side-by-side comparison interface for cleartext vs zero-pixel redacted images.</li>
+                    </ul>
+
+                    <div class="mt-6 p-4 bg-alabaster-card rounded border border-murrey text-murrey">
+                        <p class="font-bold text-lg">Status: Under Active Research & Development</p>
+                        <p class="text-sm text-murrey-light mt-1">This module will be linked with the main gateway REST endpoint in subsequent milestone releases.</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const samplePayloads = [
+            "Process refund for Aadhaar 3689 5684 1022 using card 4532 0151 1283 0366.",
+            "Contact user at primary email dhaneshshingade@enterprise.com regarding account verification.",
+            "Verify identity for tax filing with PAN number ABCDE1234F and SSN 219-09-9812.",
+            "Urgent request to transfer funds from account linked with card 4532 0151 1283 0366 and email contact mycompany@company.org.",
+            "Verify citizen record using Aadhaar 2345 6789 0127 and tax record PAN XYZAB5678C."
+        ];
+
+        function loadSample() {
+            const randomIndex = Math.floor(Math.random() * samplePayloads.length);
+            document.getElementById('promptInput').value = samplePayloads[randomIndex];
+        }
+
+        function switchTab(tab) {
+            const gatewayTab = document.getElementById('gatewayTab');
+            const imageTab = document.getElementById('imageTab');
+            const gatewayBtn = document.getElementById('tabGatewayBtn');
+            const imageBtn = document.getElementById('tabImageBtn');
+
+            if(tab === 'gateway') {
+                gatewayTab.classList.remove('hidden');
+                imageTab.classList.add('hidden');
+                gatewayBtn.className = 'text-lg font-bold px-6 py-2 rounded border border-murrey bg-murrey text-alabaster-bg transition';
+                imageBtn.className = 'text-lg font-bold px-6 py-2 rounded border border-alabaster-border bg-alabaster-card text-murrey hover:bg-alabaster-border transition';
+            } else {
+                gatewayTab.classList.add('hidden');
+                imageTab.classList.remove('hidden');
+                imageBtn.className = 'text-lg font-bold px-6 py-2 rounded border border-murrey bg-murrey text-alabaster-bg transition';
+                gatewayBtn.className = 'text-lg font-bold px-6 py-2 rounded border border-alabaster-border bg-alabaster-card text-murrey hover:bg-alabaster-border transition';
+            }
+        }
+
+        async function processPayload() {
+            const prompt = document.getElementById('promptInput').value;
+            if(!prompt) return alert("Please enter a prompt!");
+
+            const res = await fetch('/api/process', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ prompt: prompt, ttl_seconds: 10 })
+            });
+
+            const data = await res.json();
+            document.getElementById('latencyMetric').innerText = data.latency_ms + " ms";
+            document.getElementById('tokensMetric').innerText = data.tokens_created;
+            document.getElementById('sanitizedBox').innerText = data.sanitized;
+            document.getElementById('rehydratedBox').innerText = data.rehydrated_user_output;
+            updateVaultUI();
+        }
+
+        async function updateVaultUI() {
+            const res = await fetch('/api/vault_status');
+            const data = await res.json();
+            const container = document.getElementById('vaultTable');
+
+            if(data.live_vault.length === 0) {
+                container.innerHTML = '<span class="text-murrey-light italic">No active token mappings in RAM memory. Cleartext zero-disk footprint confirmed.</span>';
+                return;
+            }
+
+            let html = `<div class="grid grid-cols-3 gap-2 font-bold border-b border-alabaster-border pb-2 text-murrey-light uppercase tracking-wider text-base">
+                <span>TOKEN (RAM KEY)</span><span>CLEARTEXT VALUE</span><span>TTL REMAINING</span>
+            </div>`;
+
+            data.live_vault.forEach(item => {
+                html += `<div class="grid grid-cols-3 gap-2 py-2 border-b border-alabaster-border text-murrey text-base">
+                    <span class="font-semibold text-murrey">${item.token}</span>
+                    <span class="text-murrey-light">${item.cleartext}</span>
+                    <span class="font-bold text-murrey">${item.ttl_remaining}s</span>
+                </div>`;
+            });
+
+            container.innerHTML = html;
+        }
+        setInterval(updateVaultUI, 1000);
+    </script>
+</body>
+</html>
