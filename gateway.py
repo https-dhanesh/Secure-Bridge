@@ -2,124 +2,440 @@ import os
 import re
 import uuid
 import time
+
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from google import genai
 from dotenv import load_dotenv
 
+from detector.hybrid_detector import HybridDetector
 from engine import AlgorithmicEngine
 from vault import ram_vault
+
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
 load_dotenv()
 
 app = FastAPI(title="Secure Bridge Demo")
 
-ai_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
+# ============================================================
+# GEMINI CLIENT
+# ============================================================
+
+ai_client = genai.Client(
+    api_key=os.getenv("GEMINI_API_KEY")
+)
+
+CLOUD_LLM_MODEL = "gemini-3.5-flash-lite"
+
+
+# ============================================================
+# REQUEST MODEL
+# ============================================================
 
 class PromptRequest(BaseModel):
     prompt: str
     ttl_seconds: int = 15
 
+
+# ============================================================
+# WEB UI
+# ============================================================
+
 @app.get("/", response_class=HTMLResponse)
 def serve_ui():
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    html_path = os.path.join(BASE_DIR, "dashboard.html")
-    with open(html_path, "r", encoding="utf-8") as f:
+
+    base_dir = os.path.dirname(
+        os.path.abspath(__file__)
+    )
+
+    html_path = os.path.join(
+        base_dir,
+        "dashboard.html"
+    )
+
+    with open(
+        html_path,
+        "r",
+        encoding="utf-8"
+    ) as f:
+
         return f.read()
+
+
+# ============================================================
+# PROCESS PROMPT
+# ============================================================
 
 @app.post("/api/process")
 def process_prompt(req: PromptRequest):
+
     start_time = time.perf_counter()
-    sanitized = req.prompt
+
+    original_prompt = req.prompt
+
+    sanitized = original_prompt
+
     tokens_created = 0
 
-    # 1. Credit Cards (Luhn Check)
-    cards_found = []
-    for card in re.findall(r'\b(?:\d[ -]*?){13,19}\b', req.prompt):
-        clean_card = re.sub(r'\D', '', card)
-        if AlgorithmicEngine.validate_luhn(clean_card):
-            t = f"[CARD_{uuid.uuid4().hex[:4].upper()}]"
-            ram_vault.store_mapping(t, card, req.ttl_seconds)
-            sanitized = sanitized.replace(card, t)
-            cards_found.append(card)
-            tokens_created += 1
+    # ========================================================
+    # 1. HYBRID PII DETECTION
+    # ========================================================
 
-    # 2. Aadhaar Numbers (Verhoeff Check)
-    for aid in re.findall(r'(?<!\d)\b\d{4}[ -]?\d{4}[ -]?\d{4}\b(?!\d)', req.prompt):
-        if any(aid in card for card in cards_found):
+    detection_result = HybridDetector.detect(
+        original_prompt
+    )
+
+    detections = detection_result.detections
+
+    # ========================================================
+    # 2. LOCAL LLM INFORMATION
+    # ========================================================
+
+    local_llm_used = detection_result.model_used
+
+    if local_llm_used:
+
+        local_llm_provider = "local"
+
+        local_llm_runtime = "llama-cpp-python"
+
+        local_llm_model = (
+            "qwen2.5-1.5b-instruct-q5_k_m"
+        )
+
+    else:
+
+        local_llm_provider = None
+
+        local_llm_runtime = None
+
+        local_llm_model = None
+
+    # ========================================================
+    # 3. TOKENIZATION
+    # ========================================================
+
+    tokenized_entities = []
+
+    # Replace from right -> left.
+    #
+    # This keeps detection positions stable and helps when
+    # multiple entities exist in the same prompt.
+
+    detections_sorted = sorted(
+        detections,
+        key=lambda d: d.start,
+        reverse=True
+    )
+
+    for detection in detections_sorted:
+
+        value = detection.value
+
+        # Safety check.
+        if not value:
             continue
-            
-        clean_aid = re.sub(r'\D', '', aid)
-        if AlgorithmicEngine.validate_verhoeff(clean_aid) or len(clean_aid) == 12:
-            t = f"[AADHAAR_{uuid.uuid4().hex[:4].upper()}]"
-            ram_vault.store_mapping(t, aid, req.ttl_seconds)
-            sanitized = sanitized.replace(aid, t)
-            tokens_created += 1
 
-    # 3. Email Addresses
-    for email in re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', req.prompt):
-        t = f"[EMAIL_{uuid.uuid4().hex[:4].upper()}]"
-        ram_vault.store_mapping(t, email, req.ttl_seconds)
-        sanitized = sanitized.replace(email, t)
+        # Only tokenize if the value still exists.
+        if value not in sanitized:
+            continue
+
+        category = detection.category.upper()
+
+        safe_category = re.sub(
+            r"[^A-Z0-9_]",
+            "_",
+            category
+        )
+
+        token = (
+            f"[{safe_category}_"
+            f"{uuid.uuid4().hex[:4].upper()}]"
+        )
+
+        # Store cleartext only in the ephemeral RAM vault.
+        ram_vault.store_mapping(
+            token,
+            value,
+            req.ttl_seconds
+        )
+
+        sanitized = sanitized.replace(
+            value,
+            token,
+            1
+        )
+
         tokens_created += 1
 
-    # 4. US Social Security Numbers (SSN)
-    for ssn in re.findall(r'\b\d{3}-\d{2}-\d{4}\b', req.prompt):
-        if AlgorithmicEngine.validate_ssn(ssn):
-            t = f"[SSN_{uuid.uuid4().hex[:4].upper()}]"
-            ram_vault.store_mapping(t, ssn, req.ttl_seconds)
-            sanitized = sanitized.replace(ssn, t)
-            tokens_created += 1
+        tokenized_entities.append(
+            {
+                "category": category,
+                "source": detection.source,
+                "confidence": detection.confidence,
+                "validated": detection.validated,
+                "token": token
+            }
+        )
 
-    # 5. PAN Cards
-    for pan in re.findall(r'\b[A-Z]{5}[0-9]{4}[A-Z]{1}\b', req.prompt):
-        if AlgorithmicEngine.validate_pan(pan):
-            t = f"[PAN_{uuid.uuid4().hex[:4].upper()}]"
-            ram_vault.store_mapping(t, pan, req.ttl_seconds)
-            sanitized = sanitized.replace(pan, t)
-            tokens_created += 1
+    # ========================================================
+    # 4. SEND SANITIZED DATA TO CLOUD LLM
+    # ========================================================
+
+    cloud_llm_status = "not_called"
+
+    cloud_ai_reply = ""
 
     try:
+
+        cloud_llm_status = "called"
+
         response = ai_client.models.generate_content(
-            model="gemini-3.5-flash-lite",
+            model=CLOUD_LLM_MODEL,
             contents=(
-                "You are a secure assistant. Acknowledge and process the user's request. "
-                "Maintain all token placeholders exactly as written (e.g. [CARD_XXXX], [EMAIL_XXXX], [SSN_XXXX], [PAN_XXXX]): "
-                f"\n\n{sanitized}"
+                "You are a secure assistant. "
+                "Process the user's request while preserving "
+                "all token placeholders exactly as written. "
+                "Never modify, remove or invent token "
+                "placeholders.\n\n"
+                f"{sanitized}"
             )
         )
+
         cloud_ai_reply = response.text
 
     except Exception as e:
-        if "503" in str(e) or "UNAVAILABLE" in str(e):
+
+        error_string = str(e)
+
+        if (
+            "503" in error_string
+            or "UNAVAILABLE" in error_string
+        ):
+
+            cloud_llm_status = "unavailable"
+
             cloud_ai_reply = (
-                f"[Gateway Intercept Success] Payload sanitized securely to: '{sanitized}'. "
-                "Upstream Cloud LLM (Gemini) is experiencing temporary high demand (HTTP 503). "
-                "Local Zero-Trust Edge processing completed successfully."
+                "[Gateway Intercept Success] "
+                f"Payload sanitized securely to: "
+                f"'{sanitized}'. "
+                "Upstream Cloud LLM is temporarily "
+                "unavailable. "
+                "Local Zero-Trust Edge processing "
+                "completed."
             )
+
         else:
-            cloud_ai_reply = f"[Gemini Gateway Connection Error: {str(e)}]"
+
+            cloud_llm_status = "error"
+
+            cloud_ai_reply = (
+                "[Gemini Gateway Connection Error: "
+                f"{error_string}]"
+            )
+
+    # ========================================================
+    # 5. REHYDRATION
+    # ========================================================
 
     rehydrated = cloud_ai_reply
+
     live_map = ram_vault.get_live_memory_map()
-    live_map.sort(key=lambda x: len(x["token"]), reverse=True)
+
+    # Longest token first prevents substring collisions.
+    live_map.sort(
+        key=lambda x: len(x["token"]),
+        reverse=True
+    )
 
     for item in live_map:
-        if item["token"] in rehydrated:
-            rehydrated = rehydrated.replace(item["token"], item["cleartext"])
 
-    latency = round((time.perf_counter() - start_time) * 1000, 2)
+        token = item["token"]
+
+        if token in rehydrated:
+
+            rehydrated = rehydrated.replace(
+                token,
+                item["cleartext"]
+            )
+
+    # ========================================================
+    # 6. TOTAL LATENCY
+    # ========================================================
+
+    latency = round(
+        (
+            time.perf_counter()
+            - start_time
+        ) * 1000,
+        2
+    )
+
+    # ========================================================
+    # 7. TERMINAL DEBUG / AUDIT INFORMATION
+    # ========================================================
+
+    print()
+    print("=" * 70)
+    print("SECURE BRIDGE REQUEST")
+    print("=" * 70)
+
+    print(
+        f"LOCAL LLM USED : "
+        f"{'YES' if local_llm_used else 'NO'}"
+    )
+
+    if local_llm_used:
+
+        print(
+            f"LOCAL MODEL    : "
+            f"{local_llm_model}"
+        )
+
+        print(
+            f"LOCAL RUNTIME  : "
+            f"{local_llm_runtime}"
+        )
+
+    else:
+
+        print(
+            "LOCAL MODEL    : "
+            "Not required"
+        )
+
+    print(
+        f"CLOUD LLM      : "
+        f"{CLOUD_LLM_MODEL}"
+    )
+
+    print(
+        f"CLOUD STATUS   : "
+        f"{cloud_llm_status}"
+    )
+
+    print(
+        f"DETECTIONS     : "
+        f"{len(detections)}"
+    )
+
+    print(
+        f"TOKENS CREATED : "
+        f"{tokens_created}"
+    )
+
+    print(
+        f"DETECTION TIME : "
+        f"{detection_result.latency_ms} ms"
+    )
+
+    print(
+        f"TOTAL TIME     : "
+        f"{latency} ms"
+    )
+
+    print("=" * 70)
+    print()
+
+    # ========================================================
+    # 8. API RESPONSE
+    # ========================================================
 
     return {
-        "original": req.prompt,
+
+        # ----------------------------------------------------
+        # Original / sanitized / final data
+        # ----------------------------------------------------
+
+        "original": original_prompt,
+
         "sanitized": sanitized,
+
         "cloud_llm_received": cloud_ai_reply,
+
         "rehydrated_user_output": rehydrated,
+
+        # ----------------------------------------------------
+        # Token information
+        # ----------------------------------------------------
+
         "tokens_created": tokens_created,
-        "latency_ms": latency
+
+        # ----------------------------------------------------
+        # Overall latency
+        # ----------------------------------------------------
+
+        "latency_ms": latency,
+
+        # ----------------------------------------------------
+        # Detection information
+        # ----------------------------------------------------
+
+        "detection": {
+
+            "total_detections": len(
+                detections
+            ),
+
+            "model_used": local_llm_used,
+
+            "detection_latency_ms":
+                detection_result.latency_ms,
+
+            "entities": [
+                detection.to_dict()
+                for detection in detections
+            ],
+
+            "tokenized_entities":
+                tokenized_entities
+        },
+
+        # ----------------------------------------------------
+        # LOCAL LLM INFORMATION
+        # ----------------------------------------------------
+
+        "local_llm": {
+
+            "used": local_llm_used,
+
+            "provider": local_llm_provider,
+
+            "model": local_llm_model,
+
+            "runtime": local_llm_runtime
+
+        },
+
+        # ----------------------------------------------------
+        # CLOUD LLM INFORMATION
+        # ----------------------------------------------------
+
+        "cloud_llm": {
+
+            "model": CLOUD_LLM_MODEL,
+
+            "status": cloud_llm_status
+
+        }
     }
+
+
+# ============================================================
+# VAULT STATUS
+# ============================================================
 
 @app.get("/api/vault_status")
 def vault_status():
-    return {"live_vault": ram_vault.get_live_memory_map()}
+
+    return {
+        "live_vault": (
+            ram_vault.get_live_memory_map()
+        )
+    }
